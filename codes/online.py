@@ -1,0 +1,108 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Apr 02 15:58:54 2017
+
+@author: Thinkpad
+"""
+
+import numpy as np
+import pandas as pd
+import xgboost as xgb
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cross_validation import train_test_split
+from tools import*
+
+Product = pd.read_csv('../data/JData_Product.csv')
+dataset1 = pd.read_csv('../data/train/dataset2016-04-02_2016-04-16.csv')
+dataset2 = pd.read_csv('../data/train/dataset2016-04-07_2016-04-16.csv')
+
+dataset1_negative = pd.read_csv('../data/train/dataset1_negative.csv')
+
+dataset1 = dataset1.drop(['time','time1'],1)
+dataset1.drop_duplicates(inplace=True)
+dataset1_negative = data_negative(dataset1,10)
+dataset1_negative.drop_duplicates(inplace = True)
+dataset1 = pd.concat([dataset1[dataset1.label==1],dataset1_negative],axis=0)
+
+dataset2 = dataset2.drop(['time','time1'],1)
+dataset2.drop_duplicates(inplace=True)
+
+#dataset1 = pd.concat([dataset1[dataset1.label==1],dataset1_negative],axis=0)
+
+X_train, X_test, y_train, y_test = train_test_split(dataset1.drop(['user_id','sku_id','label'],axis=1), dataset1['label'], test_size=0.2, random_state=0)
+dtrain=xgb.DMatrix(X_train, label=y_train)
+dtest=xgb.DMatrix(X_test, label=y_test)
+
+param = {'learning_rate' : 0.1, 'n_estimators': 1000, 'max_depth': 3, 
+    'min_child_weight': 5, 'gamma': 0, 'subsample': 1.0, 'colsample_bytree': 0.8,
+    'scale_pos_weight': 3, 'eta': 0.01, 'silent': 1, 'objective': 'binary:logistic'}
+num_round = 666
+param['nthread'] = 4
+#param['eval_metric'] = "auc"
+plst = param.items()
+plst += [('eval_metric', 'logloss')]
+evallist = [(dtest, 'eval'), (dtrain, 'train')]
+bst=xgb.train(plst, dtrain, num_round, evallist)
+
+dataset2_x = dataset2.drop(['user_id','sku_id'],axis=1)
+
+data1 = xgb.DMatrix(dataset1_x,label=dataset1_y)
+data2 = xgb.DMatrix(dataset2_x.values)
+dataset2_preds = dataset2[['user_id','sku_id']]
+
+y = bst.predict(data2)
+
+dataset2_preds['label'] = y
+pred = dataset2_preds[dataset2_preds['label'] >= 0.095]
+pred = pred[['user_id', 'sku_id']]
+pred = pred.groupby('user_id').first().reset_index()
+pred['user_id'] = pred['user_id'].astype(int)
+pred = pd.merge(pred,Product,on='sku_id')
+pred = pred[['user_id', 'sku_id']]
+pred.to_csv('../results/result_04_15_13.csv', index=False, index_label=False)
+
+
+feature_score = bst.get_fscore()
+feature_score = sorted(feature_score.items(), key=lambda x:x[1],reverse=True)
+fs = []
+for (key,value) in feature_score:
+    fs.append("{0},{1}\n".format(key,value))
+    
+with open('../results/xgb_feature_score.csv','w') as f:
+    f.writelines("feature,score\n")
+    f.writelines(fs)
+
+
+
+
+params={'booster':'gbtree',
+	    'objective': 'rank:pairwise',
+	    'eval_metric':'auc',
+	    'gamma':0.1,
+	    'min_child_weight':1.1,
+	    'max_depth':5,
+	    'lambda':10,
+	    'subsample':0.7,
+	    'colsample_bytree':0.7,
+	    'colsample_bylevel':0.7,
+	    'eta': 0.01,
+	    'tree_method':'exact',
+	    'seed':0,
+	    'nthread':12
+	    }
+     
+watchlist = [(data1,'train')]
+model = xgb.train(params,data1,num_boost_round=500,evals=watchlist)
+
+dataset2_preds['label'] = model.predict(data2)
+dataset2_preds.label = MinMaxScaler().fit_transform(dataset2_preds.label)
+dataset2_preds.drop_duplicates(inplace=True)
+
+a = dataset2_preds.groupby(['user_id'])['label'].agg(lambda x: max(x)).reset_index()
+b = pd.merge(a,dataset2_preds,on=['user_id','label'])
+b = pd.merge(b,Product,on='sku_id')
+c = b[b.label>0.678]
+c = c[['user_id','sku_id']]
+c = c.astype('int')
+
+c.to_csv('../results/result_04_09_14.csv',index=False)
