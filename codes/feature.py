@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from datetime import date
 from datetime import datetime
+from datetime import timedelta
 
 action_1_path = "../data/JData_Action_201602.csv"
 action_2_path = "../data/JData_Action_201603.csv"
@@ -66,10 +67,75 @@ def get_actions(start_date, end_date):
     actions = actions[(actions.time >= start_date) & (actions.time < end_date)]
     return actions
 
+def get_user_feature(data,start_date,end_date):
+    User_feacture_C = [(lambda x:('UC'+ '_'+ start_date[5:]+ '_'+end_date[5:]+ '_' + str(x).zfill(2))) (x)  for x in range(11)]
+    data = data[(data.time >= start_date) & (data.time < end_date)]
+    df = pd.get_dummies(data['type'], prefix='user_action')
+    t1 = pd.concat([data['user_id'], df], axis=1)
+    t1 = t1.groupby(['user_id'], as_index=False).sum()
+    t1['user_action_1_ratio'] = t1['user_action_4'] / t1['user_action_1']
+    t1['user_action_2_ratio'] = t1['user_action_4'] / t1['user_action_2']
+    t1['user_action_3_ratio'] = t1['user_action_4'] / t1['user_action_3']
+    t1['user_action_5_ratio'] = t1['user_action_4'] / t1['user_action_5']
+    t1['user_action_6_ratio'] = t1['user_action_4'] / t1['user_action_6']
+    t1 = t1.fillna(-1)  
+    t1.columns = ['user_id'] + User_feacture_C
+    return t1
+
+def get_sku_feature(data,start_date,end_date):
+    Sku_feacture_C = [(lambda x:('Sk'+ '_'+ start_date[5:]+ '_'+end_date[5:]+ '_' + str(x).zfill(2))) (x)  for x in range(11)]
+    data = data[(data.time >= start_date) & (data.time < end_date)]
+    df = pd.get_dummies(data['type'], prefix='sku_action')
+    t1 = pd.concat([data['sku_id'], df], axis=1)
+    t1 = t1.groupby(['sku_id'], as_index=False).sum()
+    t1['product_action_1_ratio'] = t1['sku_action_4'] / t1['sku_action_1']
+    t1['product_action_2_ratio'] = t1['sku_action_4'] / t1['sku_action_2']
+    t1['product_action_3_ratio'] = t1['sku_action_4'] / t1['sku_action_3']
+    t1['product_action_5_ratio'] = t1['sku_action_4'] / t1['sku_action_5']
+    t1['product_action_6_ratio'] = t1['sku_action_4'] / t1['sku_action_6']    
+    t1 = t1.fillna(-1)     
+    t1.columns = ['sku_id'] + Sku_feacture_C
+    return t1
+    
+def get_sc_feature(data,start_date,end_date):    
+    Sc_feacture_C = [(lambda x:('SC'+ '_'+ start_date[5:]+ '_'+end_date[5:]+ '_' + str(x).zfill(2))) (x)  for x in range(11)]
+    data = data[(data.time >= start_date) & (data.time < end_date)]
+    df = pd.get_dummies(data['type'], prefix='us_action')
+    t = pd.concat([data[['user_id','sku_id']], df], axis=1)
+    t = t.groupby(['user_id','sku_id'], as_index=False).sum()    
+    t['us_action_1_ratio'] = t['us_action_4'] / t['us_action_1']
+    t['us_action_2_ratio'] = t['us_action_4'] / t['us_action_2']
+    t['us_action_3_ratio'] = t['us_action_4'] / t['us_action_3']
+    t['us_action_5_ratio'] = t['us_action_4'] / t['us_action_5']
+    t['us_action_6_ratio'] = t['us_action_4'] / t['us_action_6'] 
+    t = t.fillna(-1)     
+    t.columns = ['user_id','sku_id'] + Sc_feacture_C
+    return t
+    
+def get_comments_product_feat(start_date, end_date):
+    comments = pd.read_csv(comment_path)
+    comment_date_end = end_date
+    comment_date_begin = comment_date[0]
+    for date in reversed(comment_date):
+        if date < comment_date_end:
+            comment_date_begin = date
+            break
+    comments = comments[(comments.dt >= comment_date_begin) & (comments.dt < comment_date_end)]
+    df = pd.get_dummies(comments['comment_num'], prefix='comment_num')
+    comments = pd.concat([comments, df], axis=1) # type: pd.DataFrame
+    #del comments['dt']
+    #del comments['comment_num']
+    comments = comments[['sku_id', 'has_bad_comment', 'bad_comment_rate', 'comment_num_1', 'comment_num_2', 'comment_num_3', 'comment_num_4']]
+    return comments
+    
+    
 def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_date):
     User = pd.read_csv(user_path,encoding='gbk')
     train = get_actions(train_start_date,train_end_date)
     train.drop_duplicates(inplace='True')
+    
+    end = datetime.strptime(train_end_date, '%Y-%m-%d') - timedelta(days=1)
+    end = end.strftime('%Y-%m-%d')
     #-------------------user_feature----------------
     t = train[['user_id']]
     t = pd.merge(t,User,how='left',on='user_id')
@@ -78,19 +144,36 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     sex_df = pd.get_dummies(t["sex"], prefix="sex")
     user_lv_df = pd.get_dummies(t["user_lv_cd"], prefix="user_lv_cd")
     t = pd.concat([t['user_id'], age_df, sex_df, user_lv_df], axis=1)
+    t.drop_duplicates(inplace='True')
 
     
-    df = pd.get_dummies(train['type'], prefix='user_action')
-    t1 = pd.concat([train['user_id'], df], axis=1)
-    t1 = t1.groupby(['user_id'], as_index=False).sum()
-    t1['user_action_1_ratio'] = t1['user_action_4'] / t1['user_action_1']
-    t1['user_action_2_ratio'] = t1['user_action_4'] / t1['user_action_2']
-    t1['user_action_3_ratio'] = t1['user_action_4'] / t1['user_action_3']
-    t1['user_action_5_ratio'] = t1['user_action_4'] / t1['user_action_5']
-    t1['user_action_6_ratio'] = t1['user_action_4'] / t1['user_action_6']
-    t1 = t1.fillna(-1)    
+    actions = None
+    for i in (('00','02'),('00','06'),('00','12')):
+        start_days = end + ' ' + i[0]
+        end_time = end + ' '+ i[1]
+        if actions is None:
+            actions = get_user_feature(train,start_days,end_time)
+            print(i)
+        else:
+            actions = pd.merge(actions, get_user_feature(train,start_days,end_time), how='right',
+                               on=['user_id'])
+            print(i)    
+    actions = actions.fillna(0)
+        
+   
+    for i in (1, 3, 5, 7, 10):
+        start_days = datetime.strptime(train_end_date, '%Y-%m-%d') - timedelta(days=i)
+        start_days = start_days.strftime('%Y-%m-%d')
+        if actions is None:
+            actions = get_user_feature(train,start_days,train_end_date)
+            print(i)
+        else:
+            actions = pd.merge(actions, get_user_feature(train,start_days,train_end_date), how='right',
+                               on=['user_id'])
+            print(i)    
+    actions = actions.fillna(0)
     
-    user_feature = pd.merge(t,t1,how='left',on='user_id')
+    user_feature = pd.merge(t,actions,how='left',on='user_id')
     user_feature = user_feature.fillna(0)
     user_feature.drop_duplicates(inplace='True')
     user_feature.to_csv('../data/feature/'+'user_feature'+str(train_start_date)+'_'+str(train_end_date)+'.csv',index=None)
@@ -102,20 +185,36 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     attr1_df = pd.get_dummies(product["a1"], prefix="a1")
     attr2_df = pd.get_dummies(product["a2"], prefix="a2")
     attr3_df = pd.get_dummies(product["a3"], prefix="a3")
-    product = pd.concat([product[['sku_id', 'cate', 'brand']], attr1_df, attr2_df, attr3_df], axis=1)
+    product = pd.concat([product[['sku_id']], attr1_df, attr2_df, attr3_df], axis=1)
     t = pd.merge(t,product,how='left',on='sku_id')
     t.drop_duplicates(inplace='True')
     
-    df = pd.get_dummies(train['type'], prefix='sku_action')
-    t1 = pd.concat([train['sku_id'], df], axis=1)
-    t1 = t1.groupby(['sku_id'], as_index=False).sum()
-    t1['product_action_1_ratio'] = t1['sku_action_4'] / t1['sku_action_1']
-    t1['product_action_2_ratio'] = t1['sku_action_4'] / t1['sku_action_2']
-    t1['product_action_3_ratio'] = t1['sku_action_4'] / t1['sku_action_3']
-    t1['product_action_5_ratio'] = t1['sku_action_4'] / t1['sku_action_5']
-    t1['product_action_6_ratio'] = t1['sku_action_4'] / t1['sku_action_6']    
-    t1 = t1.fillna(-1)     
-    
+    actions = None
+    for i in (('00','02'),('00','06'),('00','12')):
+        start_days = end + ' '+ i[0]
+        end_time = end + ' '+ i[1]
+        if actions is None:
+            actions = get_sku_feature(train,start_days,end_time)
+            print(i)
+        else:
+            actions = pd.merge(actions, get_sku_feature(train,start_days,end_time), how='right',
+                               on=['sku_id'])
+            print(i)    
+    actions = actions.fillna(0)
+        
+   
+    for i in (1, 3, 5, 7, 10):
+        start_days = datetime.strptime(train_end_date, '%Y-%m-%d') - timedelta(days=i)
+        start_days = start_days.strftime('%Y-%m-%d')
+        if actions is None:
+            actions = get_sku_feature(train,start_days,train_end_date)
+            print(i)
+        else:
+            actions = pd.merge(actions, get_sku_feature(train,start_days,train_end_date), how='right',
+                               on=['sku_id'])
+            print(i)    
+    actions = actions.fillna(0)
+
     t2 = train[['sku_id','user_id','type']]
     t2 = t2[t2.type==4]
     t2 = t2[['sku_id','user_id']]
@@ -140,7 +239,7 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     
     
     
-    sku_feature = pd.merge(t,t1,how='left',on='sku_id')
+    sku_feature = pd.merge(t,actions,how='left',on='sku_id')
     sku_feature = pd.merge(sku_feature,t4,how='left',on='sku_id')
     sku_feature = sku_feature.fillna(0)
     sku_feature.drop_duplicates(inplace='True')    
@@ -148,76 +247,98 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     
     print ("--------------sku_feature finished-------------")    
     #-------------------user-sku_feature----------    
-    df = pd.get_dummies(train['type'], prefix='us_action')
-    t = pd.concat([train[['user_id','sku_id']], df], axis=1)
-    t = t.groupby(['user_id','sku_id'], as_index=False).sum()    
-    t['us_action_1_ratio'] = t['us_action_4'] / t['us_action_1']
-    t['us_action_2_ratio'] = t['us_action_4'] / t['us_action_2']
-    t['us_action_3_ratio'] = t['us_action_4'] / t['us_action_3']
-    t['us_action_5_ratio'] = t['us_action_4'] / t['us_action_5']
-    t['us_action_6_ratio'] = t['us_action_4'] / t['us_action_6'] 
-    t = t.fillna(-1)
+    actions = None
+    for i in (('00','02'),('00','06'),('00','12')):
+        start_days = end + ' '+ i[0]
+        end_time = end + ' '+ i[1]
+        if actions is None:
+            actions = get_sc_feature(train,start_days,end_time)
+            print(i)
+        else:
+            actions = pd.merge(actions, get_sc_feature(train,start_days,end_time), how='right',
+                               on=['user_id','sku_id'])
+            print(i)    
+    actions = actions.fillna(0)
+        
+   
+    for i in (1, 3, 5, 7, 10):
+        start_days = datetime.strptime(train_end_date, '%Y-%m-%d') - timedelta(days=i)
+        start_days = start_days.strftime('%Y-%m-%d')
+        if actions is None:
+            actions = get_sc_feature(train,start_days,train_end_date)
+            print(i)
+        else:
+            actions = pd.merge(actions, get_sc_feature(train,start_days,train_end_date), how='right',
+                               on=['user_id','sku_id'])
+            print(i)    
+    actions = actions.fillna(0)
     
-    us_feature = t
+    us_feature = actions
     us_feature.to_csv('../data/feature/'+'us_feature'+str(train_start_date)+'_'+str(train_end_date)+'.csv',index=None)
     
     print ("--------------us_feature finished-------------")
     #-------------------other feature----------------
-    other_feature = train[['time']]
-    other_feature.drop_duplicates(inplace = True)
-    other_feature['time1'] = other_feature.time.apply(lambda x: x.replace(' ','-'))
-    other_feature['time1'] = other_feature.time1.apply(lambda x: x.replace(':','-'))
-    other_feature['time1'] = other_feature.time1.map(convert_datetime)
-    other_feature['day_of_week'] =  [i.weekday()+1 for i in other_feature.time1]
-    weekday_dummies = pd.get_dummies(other_feature.day_of_week, prefix='weekday') 
-    other_feature['is_weekend'] = other_feature.day_of_week.apply(lambda x:1 if x in (6,7) else 0)    
-    other_feature = pd.concat([other_feature[['time','is_weekend']], weekday_dummies], axis=1)
-    other_feature.drop_duplicates(inplace='True')
+#==============================================================================
+#     other_feature = train[['time']]
+#     other_feature.drop_duplicates(inplace = True)
+#     other_feature['time1'] = other_feature.time.apply(lambda x: x.replace(' ','-'))
+#     other_feature['time1'] = other_feature.time1.apply(lambda x: x.replace(':','-'))
+#     other_feature['time1'] = other_feature.time1.map(convert_datetime)
+#     other_feature['day_of_week'] =  [i.weekday()+1 for i in other_feature.time1]
+#     weekday_dummies = pd.get_dummies(other_feature.day_of_week, prefix='weekday') 
+#     other_feature['is_weekend'] = other_feature.day_of_week.apply(lambda x:1 if x in (6,7) else 0)    
+#     other_feature = pd.concat([other_feature[['time','is_weekend']], weekday_dummies], axis=1)
+#     other_feature.drop_duplicates(inplace='True')
+#==============================================================================
     #-------------------sc feature----------------
-    t = train[['sku_id','time']]
-    t.drop_duplicates(inplace = True)
-    comments = pd.read_csv(comment_path)
-    t['dt'] = t['time'].map(convert_last_comments)    
-    t = pd.merge(t,comments,how='left',on=['sku_id','dt'])    
-    df = pd.get_dummies(t['comment_num'], prefix='comment_num')
-    t = pd.concat([t, df], axis=1) # type: pd.DataFrame
-    sc_feature = t[['sku_id','time', 'has_bad_comment', 'bad_comment_rate', 'comment_num_0.0','comment_num_1.0', 'comment_num_2.0', 'comment_num_3.0', 'comment_num_4.0']]    
-    sc_feature.drop_duplicates(inplace='True')
+#==============================================================================
+#     t = train[['sku_id','time']]
+#     t.drop_duplicates(inplace = True)
+#     comments = pd.read_csv(comment_path)
+#     t['dt'] = t['time'].map(convert_last_comments)    
+#     t = pd.merge(t,comments,how='left',on=['sku_id','dt'])    
+#     df = pd.get_dummies(t['comment_num'], prefix='comment_num')
+#     t = pd.concat([t, df], axis=1) # type: pd.DataFrame
+#     sc_feature = t[['sku_id','time', 'has_bad_comment', 'bad_comment_rate', 'comment_num_0.0','comment_num_1.0', 'comment_num_2.0', 'comment_num_3.0', 'comment_num_4.0']]    
+#     sc_feature.drop_duplicates(inplace='True')
+#==============================================================================
+    comment_acc = get_comments_product_feat(train_start_date, train_end_date)
+    
     #-------------------ut feature----------------    
-    t = train[['user_id','time']]
-    t['time1'] = t.time.map(convert_time_to_day)
-    t.drop_duplicates(inplace = True)
-    ut_feature = t
-    t = t.groupby(['user_id'])['time1'].agg(lambda x:':'.join(x)).reset_index()
-    t['action_number'] = t.time1.apply(lambda s:len(s.split(':')))
-    t = t[t.action_number>1]
-    t['max_time_action'] = t.time1.apply(lambda s:max([int(d) for d in s.split(':')]))
-    t['min_time_action'] = t.time1.apply(lambda s:min([int(d) for d in s.split(':')]))
-    t = t[['user_id','max_time_action','min_time_action']]    
-
-    ut_feature = pd.merge(ut_feature,t,on=['user_id'],how='left')
-    ut_feature.time1 = ut_feature.time1.astype('int')
-    ut_feature['distance_lasttime'] = ut_feature.max_time_action - ut_feature.time1
-    ut_feature['distance_firsttime'] = ut_feature.time1 - ut_feature.min_time_action
-    ut_feature = ut_feature[['user_id','time1','distance_lasttime','distance_firsttime']]
-    ut_feature.time1 = ut_feature.time1.astype('str')    
-    ut_feature.drop_duplicates(inplace='True') 
+#==============================================================================
+#     t = train[['user_id','time']]
+#     t['time1'] = t.time.map(convert_time_to_day)
+#     t.drop_duplicates(inplace = True)
+#     ut_feature = t
+#     t = t.groupby(['user_id'])['time1'].agg(lambda x:':'.join(x)).reset_index()
+#     t['action_number'] = t.time1.apply(lambda s:len(s.split(':')))
+#     t = t[t.action_number>1]
+#     t['max_time_action'] = t.time1.apply(lambda s:max([int(d) for d in s.split(':')]))
+#     t['min_time_action'] = t.time1.apply(lambda s:min([int(d) for d in s.split(':')]))
+#     t = t[['user_id','max_time_action','min_time_action']]    
+# 
+#     ut_feature = pd.merge(ut_feature,t,on=['user_id'],how='left')
+#     ut_feature.time1 = ut_feature.time1.astype('int')
+#     ut_feature['distance_lasttime'] = ut_feature.max_time_action - ut_feature.time1
+#     ut_feature['distance_firsttime'] = ut_feature.time1 - ut_feature.min_time_action
+#     ut_feature = ut_feature[['user_id','time1','distance_lasttime','distance_firsttime']]
+#     ut_feature.time1 = ut_feature.time1.astype('str')    
+#     ut_feature.drop_duplicates(inplace='True') 
+#==============================================================================
     print ("--------------other_feature finished-------------")
     #-------------------dataset----------------  
-    del User,t,t1,t2,t3,t4,df
-    train['time1'] = train.time.map(convert_time_to_day)
-    dataset1 = pd.merge(train[['user_id','sku_id','model_id','time','time1']],user_feature,how='left',on='user_id')
-    del user_feature    
-    dataset1 = pd.merge(dataset1,ut_feature,how='left',on=['user_id','time1'])
-    del ut_feature    
+    #del User,t,t1,t2,t3,t4,df
+    #train['time1'] = train.time.map(convert_time_to_day)
+    dataset1 = pd.merge(us_feature,user_feature,how='left',on='user_id')
+    #del user_feature    
+    #dataset1 = pd.merge(dataset1,ut_feature,how='left',on=['user_id','time1'])
+   
     dataset1 = pd.merge(dataset1,sku_feature,how='left',on='sku_id')
-    del sku_feature    
-    dataset1 = pd.merge(dataset1,us_feature,how='left',on=['user_id','sku_id'])
-    del us_feature    
-    dataset1 = pd.merge(dataset1,other_feature,how='left',on=['time'])
-    del other_feature
-    dataset1 = pd.merge(dataset1,sc_feature,how='left',on=['sku_id','time'])
-    del sc_feature    
+    #dataset1 = pd.merge(dataset1,us_feature,how='left',on=['user_id','sku_id'])    
+    #dataset1 = pd.merge(dataset1,other_feature,how='left',on=['time'])
+    #dataset1 = pd.merge(dataset1,sc_feature,how='left',on=['sku_id‘])
+    dataset1 = pd.merge(dataset1, comment_acc, how='left', on='sku_id')
+
     dataset1.drop_duplicates(inplace=True)
 
     print ("--------------dataset merge finished-------------")
@@ -233,10 +354,10 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     dataset1.to_csv('../data/train/'+'dataset'+str(train_start_date)+'_'+str(test_end_date)+'.csv',index=None)
 
 if __name__=='__main__':
-    train_start_date = '2016-04-01'
-    train_end_date = '2016-04-10'
-    test_start_date = '2016-04-10'
-    test_end_date = '2016-04-15'
+    train_start_date = '2016-03-02'
+    train_end_date = '2016-03-11'
+    test_start_date = '2016-03-11'
+    test_end_date = '2016-03-16'
     get_feature('../data/splitdata/Action4.csv',\
                   train_start_date,train_end_date,test_start_date,test_end_date)
 

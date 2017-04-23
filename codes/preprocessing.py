@@ -10,6 +10,15 @@ import pandas as pd
 import matplotlib.pyplot as plt 
 import seaborn as sns
 
+action_1_path = "../data/JData_Action_201602.csv"
+action_2_path = "../data/JData_Action_201603.csv"
+action_3_path = "../data/JData_Action_201604.csv"
+
+action_1 = pd.read_csv(action_1_path)
+action_2 = pd.read_csv(action_2_path)
+action_3 = pd.read_csv(action_3_path)
+actions = pd.concat([action_1, action_2, action_3])
+
 Action_4 = pd.read_csv('../data/splitdata/Action4.csv')
 Action_4 = Action_4.iloc[:,1:]
 Product = pd.read_csv('../data/JData_Product.csv')
