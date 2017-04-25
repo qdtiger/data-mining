@@ -51,9 +51,9 @@ X_train, X_test, y_train, y_test = train_test_split(dataset1.drop(['user_id','sk
 dtrain=xgb.DMatrix(X_train, label=y_train)
 dtest=xgb.DMatrix(X_test, label=y_test)
 param = {'learning_rate' : 0.1, 'n_estimators': 1000, 'max_depth': 3, 
-    'min_child_weight': 4, 'gamma': 0, 'subsample': 1, 'colsample_bytree': 0.8,
+    'min_child_weight': 5, 'gamma': 0, 'subsample': 1.0, 'colsample_bytree': 0.8,
     'scale_pos_weight': 1, 'eta': 0.01, 'silent': 1, 'objective': 'binary:logistic'}
-num_round = 3000
+num_round = 290
 param['nthread'] = 4
 #param['eval_metric'] = "auc"
 plst = param.items()

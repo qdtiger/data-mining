@@ -7,10 +7,18 @@ Created on Mon Mar 27 23:25:34 2017
 
 import numpy as np
 import pandas as pd
+import matplotlib.pylab as plt
+from matplotlib.pylab import rcParams
+
 import xgboost as xgb
+from xgboost.sklearn import XGBClassifier
+
+from sklearn import cross_validation, metrics   
+from sklearn.grid_search import GridSearchCV
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_validation import train_test_split
 from sklearn.linear_model import LogisticRegression
+
 from tools import*
 
 Product = pd.read_csv('../data/JData_Product.csv')
@@ -37,7 +45,7 @@ dtest=xgb.DMatrix(X_test, label=y_test)
 param = {'learning_rate' : 0.1, 'n_estimators': 1000, 'max_depth': 3, 
     'min_child_weight': 5, 'gamma': 0, 'subsample': 1.0, 'colsample_bytree': 0.8,
     'scale_pos_weight': 1, 'eta': 0.01, 'silent': 1, 'objective': 'binary:logistic'}
-num_round = 500
+num_round = 300
 param['nthread'] = 4
 #param['eval_metric'] = "auc"
 plst = param.items()
@@ -69,7 +77,7 @@ dataset2_preds = dataset2[['user_id','sku_id']]
 y = bst.predict(data2)
 
 dataset2_preds['label'] = y
-pred = dataset2_preds[dataset2_preds['label'] >= 0.065]
+pred = dataset2_preds[dataset2_preds['label'] >= 0.075]
 pred = pred[['user_id', 'sku_id']]
 pred = pred.groupby('user_id').first().reset_index()
 pred['user_id'] = pred['user_id'].astype(int)
@@ -85,6 +93,46 @@ label.drop_duplicates(inplace=True)
 evaluation(label,pred)
 report(pred,label)
 
+#==================cv=====================
+target = 'label'
+def modelfit(alg, dtrain, predictors,useTrainCV=True, cv_folds=5, early_stopping_rounds=50):
+    if useTrainCV:
+        xgb_param = alg.get_xgb_params()
+        xgtrain = xgb.DMatrix(dtrain[predictors].values, label=dtrain[target].values)
+        cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=alg.get_params()['n_estimators'], nfold=cv_folds,
+            metrics='logloss', early_stopping_rounds=early_stopping_rounds)
+        alg.set_params(n_estimators=cvresult.shape[0])
+    
+    #Fit the algorithm on the data
+    alg.fit(dtrain[predictors], dtrain['Disbursed'],eval_metric='auc')
+    
+    #Predict training set:
+    dtrain_predictions = alg.predict(dtrain[predictors])
+    dtrain_predprob = alg.predict_proba(dtrain[predictors])[:,1]
+    
+    #Print model report:
+    print "\nModel Report"
+    print "Accuracy : %.4g" % metrics.accuracy_score(dtrain['Disbursed'].values, dtrain_predictions)
+    print "AUC Score (Train): %f" % metrics.roc_auc_score(dtrain['Disbursed'], dtrain_predprob)
+    
+    feat_imp = pd.Series(alg.booster().get_fscore()).sort_values(ascending=False)
+    feat_imp.plot(kind='bar', title='Feature Importances')
+    plt.ylabel('Feature Importance Score')
+
+predictors = [x for x in dataset1.columns if x not in ['user_id','sku_id','label']]
+xgb1 = XGBClassifier(
+ learning_rate =0.1,
+ n_estimators=1000,
+ max_depth=5,
+ min_child_weight=1,
+ gamma=0,
+ subsample=0.8,
+ colsample_bytree=0.8,
+ objective= 'binary:logistic',
+ nthread=4,
+ scale_pos_weight=1,
+ seed=27)
+modelfit(xgb1, dataset1, predictors)
 #==============================================================================
 # dataset1_x = dataset1.drop(['user_id','sku_id','label'],axis=1)
 # dataset1_y = dataset1.label

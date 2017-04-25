@@ -40,7 +40,24 @@ def convert_age(age_str):
         return 6
     else:
         return -1
+        
+def convert_regtime(df):
+    if df < 10 and df>-1:
+        return 0
+    elif df >= 10 and df < 30:
+        return 1
+    elif df >= 30 and df < 60:
+        return 2
+    elif df >= 60 and df < 120:
+        return 3
+    elif df >= 120 and df < 360:
+        return 4
+    elif df >= 360:
+        return 5
+    else:
+        return -1
 
+    
 def convert_last_comments(time):
     comment_date_end = time[0:10]
     comment_date_begin = comment_date[0]
@@ -111,7 +128,22 @@ def get_sc_feature(data,start_date,end_date):
     t = t.fillna(-1)     
     t.columns = ['user_id','sku_id'] + Sc_feacture_C
     return t
-    
+
+def get_uc_feature(data,start_date,end_date):    
+    Uc_feacture_C = [(lambda x:('SC'+ '_'+ start_date[5:]+ '_'+end_date[5:]+ '_' + str(x).zfill(2))) (x)  for x in range(11)]
+    data = data[(data.time >= start_date) & (data.time < end_date)]
+    df = pd.get_dummies(data['type'], prefix='uc_action')
+    t = pd.concat([data[['user_id','cate']], df], axis=1)
+    t = t.groupby(['user_id','cate'], as_index=False).sum()    
+    t['uc_action_1_ratio'] = t['uc_action_4'] / t['uc_action_1']
+    t['uc_action_2_ratio'] = t['uc_action_4'] / t['uc_action_2']
+    t['uc_action_3_ratio'] = t['uc_action_4'] / t['uc_action_3']
+    t['uc_action_5_ratio'] = t['uc_action_4'] / t['uc_action_5']
+    t['uc_action_6_ratio'] = t['uc_action_4'] / t['uc_action_6'] 
+    t = t.fillna(-1)     
+    t.columns = ['user_id','cate'] + Uc_feacture_C
+    return t
+  
 def get_comments_product_feat(start_date, end_date):
     comments = pd.read_csv(comment_path)
     comment_date_end = end_date
@@ -139,11 +171,22 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     #-------------------user_feature----------------
     t = train[['user_id']]
     t = pd.merge(t,User,how='left',on='user_id')
+    #年龄、性别、等级
     t['age'] = t['age'].map(convert_age)
     age_df = pd.get_dummies(t["age"], prefix="age")
     sex_df = pd.get_dummies(t["sex"], prefix="sex")
     user_lv_df = pd.get_dummies(t["user_lv_cd"], prefix="user_lv_cd")
-    t = pd.concat([t['user_id'], age_df, sex_df, user_lv_df], axis=1)
+    t = pd.concat([t[['user_id','user_reg_tm']], age_df, sex_df, user_lv_df], axis=1)
+    #注册时间
+    t['user_reg_tm'] = pd.to_datetime(t['user_reg_tm'])
+    reg_dis = pd.to_datetime(train_end_date) - t['user_reg_tm']
+    reg_dis = reg_dis.fillna(-1)
+    t['user_reg_tm'] = reg_dis.map(lambda x: x.days)
+    t['user_reg_tm'] = t['user_reg_tm'].map(convert_regtime)
+    reg_time = pd.get_dummies(t['user_reg_tm'], prefix="reg_time")
+    t.drop(['user_reg_tm'],axis=1,inplace=True)
+    t = pd.concat([t,reg_time],axis=1)
+    
     t.drop_duplicates(inplace='True')
 
     
@@ -277,6 +320,40 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     us_feature.to_csv('../data/feature/'+'us_feature'+str(train_start_date)+'_'+str(train_end_date)+'.csv',index=None)
     
     print ("--------------us_feature finished-------------")
+    #-------------------user-category_feature---------- 
+    actions = None
+    for i in (('00','02'),('00','06'),('00','12')):
+        start_days = end + ' '+ i[0]
+        end_time = end + ' '+ i[1]
+        if actions is None:
+            actions = get_uc_feature(train,start_days,end_time)
+            print(i)
+        else:
+            actions = pd.merge(actions, get_uc_feature(train,start_days,end_time), how='right',
+                               on=['user_id','cate'])
+            print(i)    
+    actions = actions.fillna(0)
+        
+   
+    for i in (1, 3, 5, 7, 10):
+        start_days = datetime.strptime(train_end_date, '%Y-%m-%d') - timedelta(days=i)
+        start_days = start_days.strftime('%Y-%m-%d')
+        if actions is None:
+            actions = get_uc_feature(train,start_days,train_end_date)
+            print(i)
+        else:
+            actions = pd.merge(actions, get_uc_feature(train,start_days,train_end_date), how='right',
+                               on=['user_id','cate'])
+            print(i)    
+    actions = actions.fillna(0)
+    
+    uc_featrue = actions
+    uc_featrue.cate = uc_featrue.cate.astype('int64')
+    uc_featrue.drop_duplicates(inplace='True')    
+
+    uc_featrue.to_csv('../data/feature/'+'uc_featrue'+str(train_start_date)+'_'+str(train_end_date)+'.csv',index=None)
+    
+    print ("--------------uc_feature finished-------------")   
     #-------------------other feature----------------
 #==============================================================================
 #     other_feature = train[['time']]
@@ -338,6 +415,7 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     #dataset1 = pd.merge(dataset1,other_feature,how='left',on=['time'])
     #dataset1 = pd.merge(dataset1,sc_feature,how='left',on=['sku_id‘])
     dataset1 = pd.merge(dataset1, comment_acc, how='left', on='sku_id')
+    dataset1 = pd.merge(dataset1, uc_featrue, how='left', on=['user_id','cate'])
 
     dataset1.drop_duplicates(inplace=True)
 
@@ -351,13 +429,13 @@ def get_feature(file,train_start_date,train_end_date,test_start_date,test_end_da
     
     dataset1 = pd.merge(dataset1,test,how='left',on=['user_id','sku_id'])
     dataset1.label = dataset1.label.fillna(0)
-    dataset1.to_csv('../data/train/'+'dataset'+str(train_start_date)+'_'+str(test_end_date)+'.csv',index=None)
+    dataset1.to_csv('../data/train/'+'dataset'+str(train_start_date)+'_'+str(train_end_date)+'.csv',index=None)
 
 if __name__=='__main__':
-    train_start_date = '2016-03-02'
-    train_end_date = '2016-03-11'
-    test_start_date = '2016-03-11'
-    test_end_date = '2016-03-16'
+    train_start_date = '2016-04-07'
+    train_end_date = '2016-04-16'
+    test_start_date = '2016-04-11'
+    test_end_date = '2016-04-16'
     get_feature('../data/splitdata/Action4.csv',\
                   train_start_date,train_end_date,test_start_date,test_end_date)
 
